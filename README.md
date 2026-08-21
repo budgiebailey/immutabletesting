@@ -17,7 +17,7 @@ they pull the new commit on upgrade and boot it next time — with automatic rol
 
 ## What's in the image
 
-- **Base:** `quay.io/fedora/fedora-bootc:stable` (official Fedora bootc base)
+- **Base:** `quay.io/fedora/fedora-bootc:latest` (official Fedora bootc base)
 - **nginx** installed via `dnf` and pinned to **systemd** (auto-start on boot)
 - **`nginx/index.html`** -> `<h1>Test Succeeded!</h1>`
 
@@ -36,7 +36,7 @@ they pull the new commit on upgrade and boot it next time — with automatic rol
 ## The Containerfile (the OS definition)
 
 ```containerfile
-FROM quay.io/fedora/fedora-bootc:stable
+FROM quay.io/fedora/fedora-bootc:latest
 
 LABEL org.opencontainers.image.title="immutabletesting"
 LABEL org.opencontainers.image.source="https://github.com/budgiebailey/immutabletesting"

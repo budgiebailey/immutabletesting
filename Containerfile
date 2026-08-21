@@ -1,4 +1,4 @@
-FROM quay.io/fedora/fedora-bootc:stable
+FROM quay.io/fedora/fedora-bootc:latest
 
 LABEL org.opencontainers.image.title="immutabletesting"
 LABEL org.opencontainers.image.description="Custom Fedora bootc server image with nginx + test page"
