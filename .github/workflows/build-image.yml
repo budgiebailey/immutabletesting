@@ -25,24 +25,24 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build the custom image
-        # ghcr.io image names must be lowercase
+      - name: Build the bootc image with buildah
+        # bootc images must be built with buildah (not docker) to keep the OCI layout intact.
+        # buildah reuses the credentials logged in above via ~/.docker/config.json.
         run: |
           IMAGE="ghcr.io/${GITHUB_REPOSITORY@L}"
-          docker build -f Dockerfile -t "$IMAGE:latest" .
+          buildah login ghcr.io -u "${{ github.actor }}" --password-stdin <<< "${{ secrets.GITHUB_TOKEN }}"
+          buildah build --label io.bootc.install=1 -f Containerfile -t "$IMAGE:latest" .
 
       - name: Push the edge/latest image
-        # always keep "latest" pointing at the newest build of main
         run: |
           IMAGE="ghcr.io/${GITHUB_REPOSITORY@L}"
-          docker push "$IMAGE:latest"
+          buildah push "$IMAGE:latest"
 
       - name: Push a versioned image
-        # tag every build with the git ref (branch name or version tag)
         run: |
           IMAGE="ghcr.io/${GITHUB_REPOSITORY@L}"
           VER="${{ github.ref_name }}"
           VER="${VER//\//_}"
           echo "Pushing $IMAGE:$VER"
-          docker tag "$IMAGE:latest" "$IMAGE:$VER"
-          docker push "$IMAGE:$VER"
+          buildah tag "$IMAGE:latest" "$IMAGE:$VER"
+          buildah push "$IMAGE:$VER"

@@ -1,60 +1,104 @@
 # immutabletesting
 
-A learning project that builds a custom Fedora-based server image with nginx and a
-small test page baked in, then publishes it to **GitHub Container Registry (ghcr.io)**.
+A learning project that builds a **custom Fedora OS image** (bootc / OSTree-style) that you can
+install on real machines and update by **rebasing**, exactly like Fedora Atomic Desktop / Silverblue.
 
-Think of it like rebasing Fedora Silverblue: take an official `fedora` base image and layer
-your own changes on top. Each time you edit this repo, the workflow rebuilds and repushes,
-so anything that pulls the image automatically gets your latest changes.
+The source of truth is this repo. Every push to `main` (or tag) rebuilds the image and pushes it to
+**GitHub Container Registry (ghcr.io)**. Machines `bootc switch` to the image; when you edit the repo,
+they pull the new commit on upgrade and boot it next time — with automatic rollback if it fails to boot.
+
+## Concept
+
+- **bootc** (`github.com/bootc-dev/bootc`) = the modern way to boot a machine from a normal
+  OCI/Docker container image. The image includes a kernel in `/usr` and systemd runs as pid 1.
+- The OS is delivered as an image, not a package-by-package install. Updating = rebasing to a new image.
+- We build on **`quay.io/fedora/fedora-bootc`** — the official minimal Fedora bootc base — and layer
+  our own packages/config on top.
 
 ## What's in the image
 
-- **Base:** `fedora:latest` (official Fedora container image)
-- **nginx** installed via `yum`, serving a custom page
+- **Base:** `quay.io/fedora/fedora-bootc:stable` (official Fedora bootc base)
+- **nginx** installed via `dnf` and pinned to **systemd** (auto-start on boot)
 - **`nginx/index.html`** -> `<h1>Test Succeeded!</h1>`
 
 ## Project layout
 
 ```
 .
-├── Dockerfile                  # layering: base fedora + nginx + your edit
+├── Containerfile               # the OS image definition (FROM fedora-bootc + our layers)
 ├── nginx/
-│   ├── nginx.conf              # minimal server config (port 8080)
-│   └── index.html             # your custom "test succeeded!" page
+│   ├── nginx.conf              # server config (port 80)
+│   └── index.html             # the "test succeeded!" page
 └── .github/workflows/
     └── build-image.yml        # build + push to ghcr.io on push/tag
 ```
 
-## The Dockerfile (the "rebase")
+## The Containerfile (the OS definition)
 
-```dockerfile
-FROM fedora:latest
+```containerfile
+FROM quay.io/fedora/fedora-bootc:stable
+
+LABEL org.opencontainers.image.title="immutabletesting"
+LABEL org.opencontainers.image.source="https://github.com/budgiebailey/immutabletesting"
+
 COPY nginx/nginx.conf /etc/nginx/nginx.conf
 COPY nginx/index.html /usr/share/nginx/html/index.html
-RUN yum install -y nginx && yum clean all
-ENTRYPOINT ["nginx", "-g", "daemon off;"]
+
+RUN dnf -y install nginx && dnf clean all
+RUN systemctl enable nginx
 ```
 
-Edit anything under `nginx/` and the next push rebuilds and repushes the image.
+Edit anything here and push — the workflow rebuilds and repushes the image.
 
-## How the workflow publishes
+## What the workflow does
 
-The workflow runs on pushes to `main` and on tags. It logs into ghcr.io using the built-in
-`GITHUB_TOKEN` (no extra secret needed), builds the image, and pushes two references:
+On every push to `main`/tag:
+1. logs into ghcr.io (built-in `GITHUB_TOKEN`, no extra secret)
+2. builds the image with **buildah** (required for bootc, keeps the OCI layout intact)
+3. pushes `ghcr.io/<owner>/immutabletesting:latest` and `:<git-ref>`
 
-- `ghcr.io/<owner>/immutabletesting:latest` — always the newest `main` build
-- `ghcr.io/<owner>/immutabletesting:<git-ref>` — tagged per branch/tag
+## Installing on a fresh machine (from a Fedora Atomic installer)
 
-## Pulling and running it
+If you boot a Fedora Atomic install, you can rebase in-place from the live installer:
 
 ```bash
-docker pull ghcr.io/<owner>/immutabletesting:latest
-docker run -p 8080:8080 ghcr.io/<owner>/immutabletesting:latest
-# then open http://localhost:8080 -> "Test Succeeded!"
+# from the installer, once the target disk is ready:
+bootc switch --install-to-disk --replace-self \
+  ghcr.io/budgiebailey/immutabletesting:latest
 ```
 
-## Why it's reusable
+Then reboot into your custom image.
 
-Because the image is just a Docker layer on top of the official Fedora image, GitH
-**Changes to the repo are the source of truth.** Next time you want to redeploy, you pull the
-same repo's image and get an identical result.
+## Rebasing an already-installed Fedora Atomic / Silverblue system
+
+On the running machine:
+
+```bash
+bootc switch ghcr.io/budgiebailey/immutabletesting:latest
+bootc upgrade   # fetch the latest stored image
+```
+
+Reboot when ready. `bootc status` shows the deployment; if it fails to boot, the previous
+deployment is still there and boots next.
+
+## Iterating (the bit you asked about)
+
+Because the image is managed in the repo:
+
+1. edit `nginx/` or `Containerfile`
+2. `git commit` + `git push` -> CI rebuilds and repushes `ghcr.io/budgiebailey/immutabletesting:latest`
+3. on the target machine: `bootc upgrade` (or `bootc switch ghcr.io/budgiebailey/immutabletesting:latest`)
+4. reboot — the machine is now running your new image
+
+No package installs directly on the box. The repo is the source of truth.
+
+## Local build (optional, for testing)
+
+```bash
+buildah build --label io.bootc.install=1 -f Containerfile -t immutabletesting .
+```
+
+## Notes / current status
+
+- Image builds and pushes automatically to ghcr.io.
+- "Test Succeeded!" is served by nginx on port 80 (firewalld may need `systemctl enable --now firewalld` + `firewall-cmd --add-service=http` if you want it reachable).
