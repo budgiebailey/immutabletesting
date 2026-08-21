@@ -1,0 +1,48 @@
+name: build-image
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "*"
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build the custom image
+        # ghcr.io image names must be lowercase
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY@L}"
+          docker build -f Dockerfile -t "$IMAGE:latest" .
+
+      - name: Push the edge/latest image
+        # always keep "latest" pointing at the newest build of main
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY@L}"
+          docker push "$IMAGE:latest"
+
+      - name: Push a versioned image
+        # tag every build with the git ref (branch name or version tag)
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY@L}"
+          VER="${{ github.ref_name }}"
+          VER="${VER//\//_}"
+          echo "Pushing $IMAGE:$VER"
+          docker tag "$IMAGE:latest" "$IMAGE:$VER"
+          docker push "$IMAGE:$VER"
