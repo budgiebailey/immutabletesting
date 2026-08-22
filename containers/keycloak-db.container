@@ -1,0 +1,19 @@
+[Unit]
+Description=Postgres database for Keycloak
+After=keycloak-pod.service
+Requires=keycloak-pod.service
+
+[Container]
+Image=docker.io/library/postgres:18
+Pod=keycloak.pod
+Environment=POSTGRES_DB=keycloak
+Environment=POSTGRES_USER=keycloak
+Environment=POSTGRES_PASSWORD=keycloak
+Volume=keycloak-db.volume:/var/lib/postgresql
+
+[Service]
+Restart=always
+TimeoutStartSec=900
+
+[Install]
+WantedBy=default.target

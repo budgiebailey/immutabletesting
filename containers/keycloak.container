@@ -1,0 +1,23 @@
+[Unit]
+Description=Keycloak identity server (dev mode)
+After=keycloak-db.service
+Requires=keycloak-db.service
+
+[Container]
+Image=quay.io/keycloak/keycloak:26.7.2
+Pod=keycloak.pod
+Environment=KC_DB=postgres
+Environment=KC_DB_URL=jdbc:postgresql://localhost:5432/keycloak
+Environment=KC_DB_USERNAME=keycloak
+Environment=KC_DB_PASSWORD=keycloak
+Environment=KC_BOOTSTRAP_ADMIN_USERNAME=admin
+Environment=KC_BOOTSTRAP_ADMIN_PASSWORD=admin
+Exec=start-dev
+Volume=keycloak-data.volume:/opt/keycloak/data
+
+[Service]
+Restart=always
+TimeoutStartSec=900
+
+[Install]
+WantedBy=default.target

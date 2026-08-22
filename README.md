@@ -20,6 +20,62 @@ they pull the new commit on upgrade and boot it next time — with automatic rol
 - **Base:** `quay.io/fedora/fedora-bootc:latest` (official Fedora bootc base)
 - **nginx** installed via `dnf` and pinned to **systemd** (auto-start on boot)
 - **`nginx/index.html`** -> `<h1>Test Succeeded!</h1>`
+- **Keycloak** (dev mode) + **Postgres** running as a podman pod, auto-started by
+  systemd via **quadlet** (see `containers/`). Admin console: `http://<ip>:8080`
+
+## Keycloak (dev instance)
+
+The image ships a pod of two containers, defined in `containers/` as podman **quadlet**
+units (systemd translates `.pod` / `.container` / `.volume` files into services and
+starts them at boot):
+
+| Unit file                       | What it runs                     | Listens on       |
+|---------------------------------|----------------------------------|------------------|
+| `containers/keycloak.pod`       | shared pod (network namespace)   | 8080, 5432 (LAN) |
+| `containers/keycloak-db.container` | `postgres:18`                  | 5432 in-pod      |
+| `containers/keycloak.container` | `keycloak:26.7.2 start-dev`    | 8080 in-pod      |
+
+Because it's a pod, Keycloak reaches Postgres at `localhost:5432` and both start as
+systemd services (`keycloak.service`, `keycloak-db.service`, `keycloak-pod.service`,
+auto-enabled to `default.target`) so they survive reboots and restart on crash.
+
+### Access it
+
+After the machine is up, from another machine on the LAN:
+
+```
+http://<machine-ip>:8080/admin     # admin console
+```
+
+Default dev credentials (set via `KC_BOOTSTRAP_ADMIN_*` in `keycloak.container`):
+
+```
+username: admin
+password: admin
+```
+
+Postgres is exposed on `5432` (dev only) so you can poke at it:
+
+```
+psql "postgresql://keycloak:keycloak@<machine-ip>:5432/keycloak"
+```
+
+### Firewall
+
+If firewalld is running, allow the ports:
+
+```bash
+systemctl enable --now firewalld
+firewall-cmd --permanent --add-port=8080/tcp --add-port=5432/tcp
+firewall-cmd --reload
+```
+
+Notes:
+- In `dev` mode (`start-dev`) Keycloak binds to `0.0.0.0`, so the local IP works without a
+  reverse proxy — exactly what we want for a dev box.
+- The pod images are pre-pulled into the image at build time (rootful/CI builds bake them
+  in so first boot works offline). Rootless local builds skip the pre-pull and the pod
+  just pulls the images on first start.
 
 ## Project layout
 
@@ -29,6 +85,11 @@ they pull the new commit on upgrade and boot it next time — with automatic rol
 ├── nginx/
 │   ├── nginx.conf              # server config (port 80)
 │   └── index.html             # the "test succeeded!" page
+├── containers/                 # podman quadlet units for the keycloak pod
+│   ├── keycloak.pod            # pod: shared netns, publishes 8080 + 5432
+│   ├── keycloak.container      # keycloak:26.7.2 start-dev, admin admin/admin
+│   ├── keycloak-db.container   # postgres:18, db=user=pass=keycloak
+│   └── *.volume                # named volumes for postgres + keycloak state
 └── .github/workflows/
     └── build-image.yml        # build + push to ghcr.io on push/tag
 ```
@@ -101,4 +162,6 @@ buildah build --label io.bootc.install=1 -f Containerfile -t immutabletesting .
 ## Notes / current status
 
 - Image builds and pushes automatically to ghcr.io.
-- "Test Succeeded!" is served by nginx on port 80 (firewalld may need `systemctl enable --now firewalld` + `firewall-cmd --add-service=http` if you want it reachable).
+- "Test Succeeded!" is served by nginx on port 80.
+- Keycloak 26.7.2 (dev admin console) + Postgres 18 run as a systemd-managed podman pod
+  on ports 8080 / 5432 — verified locally: postgres schema initialises and Keycloak listens.
