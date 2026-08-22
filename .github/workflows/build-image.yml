@@ -33,6 +33,25 @@ jobs:
           buildah login ghcr.io -u "${{ github.actor }}" --password-stdin <<< "${{ secrets.GITHUB_TOKEN }}"
           buildah build --label io.bootc.install=1 -f Containerfile -t "$IMAGE:latest" .
 
+      - name: Verify the keycloak pod units are in the image
+        # Make sure the quadlet units shipped and still generate systemd services,
+        # so we don't push an image whose keycloak pod silently never starts.
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY@L}"
+          ctr=$(buildah from "$IMAGE:latest")
+          buildah run "$ctr" -- sh -c '
+            for f in keycloak.pod keycloak.container keycloak-db.container keycloak-db.volume keycloak-data.volume; do
+              test -f "/usr/share/containers/systemd/$f" || { echo "missing $f"; exit 1; }
+            done
+            echo "quadlet units present"
+            mkdir -p /tmp/normal /tmp/early /tmp/late
+            /usr/lib/systemd/system-generators/podman-system-generator /tmp/normal /tmp/early /tmp/late
+            ls /tmp/normal | grep -q keycloak.service || { echo "keycloak.service not generated"; exit 1; }
+            ls /tmp/normal | grep -q keycloak-db.service || { echo "keycloak-db.service not generated"; exit 1; }
+            echo "keycloak systemd services generated"
+          '
+          buildah rm "$ctr"
+
       - name: Push the edge/latest image
         run: |
           IMAGE="ghcr.io/${GITHUB_REPOSITORY@L}"
