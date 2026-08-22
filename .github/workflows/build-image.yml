@@ -27,18 +27,19 @@ jobs:
 
       - name: Build the bootc image with buildah
         # bootc images must be built with buildah (not docker) to keep the OCI layout intact.
-        # buildah reuses the credentials logged in above via ~/.docker/config.json.
+        # Use a plain local tag (no registry prefix) so the verify step can never
+        # accidentally pull a stale image from the registry instead of checking
+        # the image we just built.
         run: |
-          IMAGE="ghcr.io/${GITHUB_REPOSITORY@L}"
           buildah login ghcr.io -u "${{ github.actor }}" --password-stdin <<< "${{ secrets.GITHUB_TOKEN }}"
-          buildah build --label io.bootc.install=1 -f Containerfile -t "$IMAGE:latest" .
+          buildah build --label io.bootc.install=1 -f Containerfile -t immutabletesting:latest .
 
       - name: Verify the keycloak pod units are in the image
         # Make sure the quadlet units shipped and still generate systemd services,
         # so we don't push an image whose keycloak pod silently never starts.
+        # --pull=never guarantees we inspect the locally built image above.
         run: |
-          IMAGE="ghcr.io/${GITHUB_REPOSITORY@L}"
-          ctr=$(buildah from "$IMAGE:latest")
+          ctr=$(buildah from --pull=never immutabletesting:latest)
           buildah run "$ctr" -- sh -c '
             for f in keycloak.pod keycloak.container keycloak-db.container keycloak-db.volume keycloak-data.volume; do
               test -f "/usr/share/containers/systemd/$f" || { echo "missing $f"; exit 1; }
@@ -55,7 +56,7 @@ jobs:
       - name: Push the edge/latest image
         run: |
           IMAGE="ghcr.io/${GITHUB_REPOSITORY@L}"
-          buildah push "$IMAGE:latest"
+          buildah push immutabletesting:latest docker://$IMAGE:latest
 
       - name: Push a versioned image
         run: |
@@ -63,5 +64,4 @@ jobs:
           VER="${{ github.ref_name }}"
           VER="${VER//\//_}"
           echo "Pushing $IMAGE:$VER"
-          buildah tag "$IMAGE:latest" "$IMAGE:$VER"
-          buildah push "$IMAGE:$VER"
+          buildah push immutabletesting:latest docker://$IMAGE:$VER
